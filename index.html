@@ -1,0 +1,432 @@
+Voici la version spécialement optimisée pour la gestion de la veille.
+
+Comment cela fonctionne techniquement :
+
+1.  L'heure réelle est conservée quoi qu'il arrive : L'application n'utilise pas
+    un simple chronomètre, mais l'horloge interne réelle de la tablette
+    (Date.now()). Si vous lancez un bac à 12h00 pour 2h, l'échéance est fixée
+    à 14h00. Même si la tablette reste en veille pendant 1h50, dès que vous
+    rallumez l'écran, le temps restant exact s'affiche (10 minutes) sans aucun
+    décalage.
+2.  Rattrapage immédiat au réveil : Si l'échéance des 5 minutes ou de péremption
+    est dépassée pendant la veille, l'alarme se déclenche instantanément dès que
+    l'écran est rallumé.
+3.  Fonction Anti-Veille intégrée (Screen Wake Lock) : En cuisine, le plus
+    pratique est que l'écran ne s'éteigne jamais tout seul pendant le service.
+    L'application intègre une fonction automatique qui maintient l'écran allumé
+    en continu (idéal sur support branché).
+
+Le Code Complet Mis à Jour (TIME.html)
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TIME - Maintien & Conservation</title>
+    <style>
+        :root {
+            --bg-color: #0b0e14;
+            --card-bg: #161b24;
+            --text-color: #ffffff;
+            --ok-color: #27ae60;
+            --warn-color: #e67e22;
+            --danger-color: #e74c3c;
+            --border-default: #252d3d;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 15px;
+            user-select: none;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--border-default);
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .logo-box {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .app-name {
+            font-size: 2rem;
+            font-weight: 900;
+            letter-spacing: 3px;
+            color: #3498db;
+            margin: 0;
+        }
+
+        .app-subtitle {
+            font-size: 0.85rem;
+            color: #7f8c8d;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .status-badge {
+            font-size: 0.8rem;
+            color: #2ecc71;
+            background: rgba(46, 204, 113, 0.15);
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid #2ecc71;
+        }
+
+        .btn-audio {
+            background-color: #e67e22;
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            font-size: 0.95rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+            gap: 15px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            padding: 14px;
+            text-align: center;
+            border: 3px solid var(--border-default);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            min-height: 220px;
+            box-sizing: border-box;
+        }
+
+        .icon { font-size: 2.8rem; margin-bottom: 4px; }
+        .food-name { font-size: 1.15rem; font-weight: bold; margin-bottom: 2px; }
+        .food-duree { 
+            font-size: 0.8rem; 
+            color: #95a5a6; 
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .timer {
+            font-size: 2.1rem;
+            font-family: "Courier New", Courier, monospace;
+            font-weight: 800;
+            margin: 5px 0 12px 0;
+            letter-spacing: 1px;
+            color: #5c6b7d;
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-start {
+            flex: 2;
+            padding: 12px 0;
+            font-size: 1rem;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            background-color: #2c3e50;
+            color: white;
+            cursor: pointer;
+        }
+
+        .btn-stop {
+            flex: 1;
+            padding: 12px 0;
+            font-size: 0.85rem;
+            background-color: #1a222d;
+            color: #95a5a6;
+            border: 1px solid var(--border-default);
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .btn-start:active, .btn-stop:active { transform: scale(0.96); }
+
+        /* ÉTATS D'ALARME */
+        .card.active { border-color: var(--ok-color); }
+        .card.active .timer { color: var(--ok-color); }
+        .card.active .btn-start { background-color: var(--ok-color); }
+
+        .card.warning {
+            border-color: var(--warn-color);
+            animation: pulse-orange 1s infinite alternate;
+        }
+        .card.warning .timer { color: var(--warn-color); }
+        .card.warning .btn-start { background-color: var(--warn-color); }
+
+        .card.danger {
+            border-color: var(--danger-color);
+            animation: pulse-red 0.5s infinite alternate;
+        }
+        .card.danger .timer { color: var(--danger-color); }
+        .card.danger .btn-start { background-color: var(--danger-color); }
+
+        @keyframes pulse-orange {
+            from { box-shadow: 0 0 5px rgba(230, 126, 34, 0.3); }
+            to { box-shadow: 0 0 20px rgba(230, 126, 34, 0.9); }
+        }
+
+        @keyframes pulse-red {
+            from { box-shadow: 0 0 8px rgba(231, 76, 60, 0.4); }
+            to { box-shadow: 0 0 25px rgba(231, 76, 60, 1); }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo-box">
+            <span class="app-name">TIME</span>
+            <span class="app-subtitle">| Poste Garniture</span>
+        </div>
+        <div class="header-actions">
+            <span id="wakeLockStatus" class="status-badge" style="display:none;">💡 Écran anti-veille actif</span>
+            <button id="audioBtn" class="btn-audio" onclick="enableAudioAndWakeLock()">🔔 Activer Alarme</button>
+        </div>
+    </header>
+
+    <div class="grid" id="dashboard"></div>
+
+    <script>
+        // CONFIGURATION VERROUILLÉE
+        const ITEMS = [
+            { id: "tomate",         name: "Tomate",              icon: "🍅", dureeTxt: "2h",   sec: 2 * 3600 },
+            { id: "fromage",        name: "Fromage",             icon: "🧀", dureeTxt: "2h",   sec: 2 * 3600 },
+            { id: "raclette_p",     name: "Raclette Poivre",     icon: "🫕", dureeTxt: "2h",   sec: 2 * 3600 },
+            { id: "raclette_a",     name: "Raclette Ail",        icon: "🧄", dureeTxt: "2h",   sec: 2 * 3600 },
+            { id: "iceberg",        name: "Salade Iceberg",      icon: "🥬", dureeTxt: "2h",   sec: 2 * 3600 },
+            { id: "bacon",          name: "Bacon",               icon: "🥓", dureeTxt: "4h",   sec: 4 * 3600 },
+            { id: "bacon_pep",      name: "Bacon Pépites",       icon: "🥓", dureeTxt: "4h",   sec: 4 * 3600 },
+            { id: "oignon_frais",   name: "Oignons Frais",       icon: "🧅", dureeTxt: "4h",   sec: 4 * 3600 },
+            { id: "oignon_frit",    name: "Oignons Frits",       icon: "🧅", dureeTxt: "12h",  sec: 12 * 3600 },
+            { id: "oignon_cara",    name: "Oignons Caramélisés", icon: "🍯", dureeTxt: "2h",   sec: 2 * 3600 },
+            { id: "sauce_frites",   name: "Sauce Frites",        icon: "🍟", dureeTxt: "2h",   sec: 2 * 3600 },
+            { id: "sauce_raclette", name: "Sauce Raclette",      icon: "🫕", dureeTxt: "1h30", sec: 1.5 * 3600 }
+        ];
+
+        let audioContext = null;
+        let wakeLock = null;
+
+        // 1. GESTION DU SON ET DE L'ANTI-VEILLE
+        async function enableAudioAndWakeLock() {
+            // Activation Audio
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+
+            const btn = document.getElementById("audioBtn");
+            btn.style.backgroundColor = "#27ae60";
+            btn.innerText = "Alarme Prête ✅";
+            beep(700, 0.1);
+
+            // Activation Anti-Veille (empêche l'écran de s'éteindre)
+            requestWakeLock();
+        }
+
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    document.getElementById("wakeLockStatus").style.display = "inline-block";
+                    wakeLock.addEventListener('release', () => {
+                        document.getElementById("wakeLockStatus").style.display = "none";
+                    });
+                }
+            } catch (err) {
+                console.log("Anti-veille non supporté ou refusé :", err);
+            }
+        }
+
+        function beep(freq, duration) {
+            if (!audioContext) return;
+            try {
+                const osc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                osc.type = "sine";
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(0.2, audioContext.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioContext.destination);
+                osc.start();
+                osc.stop(audioContext.currentTime + duration);
+            } catch(e) {}
+        }
+
+        function playAlarmPattern() {
+            beep(880, 0.15);
+            setTimeout(() => beep(880, 0.15), 200);
+            setTimeout(() => beep(1000, 0.25), 400);
+        }
+
+        // 2. RÉVEIL APRÈS VEILLE (CATCH-UP LOGIC)
+        // Dès que l'utilisateur rallume l'écran ou revient sur l'onglet
+        document.addEventListener("visibilitychange", async () => {
+            if (document.visibilityState === 'visible') {
+                if (audioContext && audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                }
+                // Réactiver le WakeLock si perdu pendant la mise en veille
+                requestWakeLock();
+                // Forcer une vérification immédiate du temps réel
+                tick();
+            }
+        });
+
+        // 3. CONSTRUCTION DU TABLEAU DE BORD
+        function initApp() {
+            const container = document.getElementById("dashboard");
+            container.innerHTML = "";
+
+            ITEMS.forEach(item => {
+                const card = document.createElement("div");
+                card.className = "card";
+                card.id = `card-${item.id}`;
+
+                card.innerHTML = `
+                    <div>
+                        <div class="icon">${item.icon}</div>
+                        <div class="food-name">${item.name}</div>
+                        <div class="food-duree">DURÉE FIXE : ${item.dureeTxt}</div>
+                    </div>
+                    <div class="timer" id="time-${item.id}">${formatHMS(item.sec)}</div>
+                    <div class="actions">
+                        <button class="btn-start" id="btn-${item.id}" onclick="startBac('${item.id}', ${item.sec})">
+                            NOUVEAU BAC
+                        </button>
+                        <button class="btn-stop" onclick="stopBac('${item.id}', ${item.sec})">
+                            VIDER
+                        </button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+
+            setInterval(tick, 1000);
+            tick();
+        }
+
+        function startBac(id, sec) {
+            enableAudioAndWakeLock();
+            
+            // Calcul basé sur l'horloge absolue du système (insensible à la mise en veille)
+            const end = Date.now() + (sec * 1000);
+            
+            const state = {
+                endTime: end,
+                warnTriggered: false,
+                expiredTriggered: false
+            };
+
+            localStorage.setItem(`time_app_${id}`, JSON.stringify(state));
+            tick();
+        }
+
+        function stopBac(id, sec) {
+            localStorage.removeItem(`time_app_${id}`);
+            const card = document.getElementById(`card-${id}`);
+            const timeEl = document.getElementById(`time-${id}`);
+            const btn = document.getElementById(`btn-${id}`);
+
+            card.className = "card";
+            timeEl.innerText = formatHMS(sec);
+            btn.innerText = "NOUVEAU BAC";
+        }
+
+        function tick() {
+            const now = Date.now();
+
+            ITEMS.forEach(item => {
+                const raw = localStorage.getItem(`time_app_${item.id}`);
+                if (!raw) return;
+
+                const state = JSON.parse(raw);
+                // Déduction mathématique exacte du temps restant réel
+                const remainingSec = Math.ceil((state.endTime - now) / 1000);
+
+                const card = document.getElementById(`card-${item.id}`);
+                const timeEl = document.getElementById(`time-${item.id}`);
+                const btn = document.getElementById(`btn-${item.id}`);
+
+                // 1. PÉRIMÉ
+                if (remainingSec <= 0) {
+                    timeEl.innerText = "00:00:00";
+                    card.className = "card danger";
+                    btn.innerText = "RENOUVELER (JET)";
+
+                    if (!state.expiredTriggered) {
+                        state.expiredTriggered = true;
+                        localStorage.setItem(`time_app_${item.id}`, JSON.stringify(state));
+                        playAlarmPattern();
+                    }
+                } 
+                // 2. ALERTE 5 MINUTES
+                else if (remainingSec <= 300) {
+                    timeEl.innerText = formatHMS(remainingSec);
+                    card.className = "card warning";
+                    btn.innerText = "À PRÉVOIR";
+
+                    if (!state.warnTriggered) {
+                        state.warnTriggered = true;
+                        localStorage.setItem(`time_app_${item.id}`, JSON.stringify(state));
+                        playAlarmPattern();
+                    }
+                } 
+                // 3. NORMAL
+                else {
+                    timeEl.innerText = formatHMS(remainingSec);
+                    card.className = "card active";
+                    btn.innerText = "RECHARGER";
+                }
+            });
+        }
+
+        function formatHMS(totalSeconds) {
+            if (totalSeconds < 0) totalSeconds = 0;
+            const h = Math.floor(totalSeconds / 3600);
+            const m = Math.floor((totalSeconds % 3600) / 60);
+            const s = totalSeconds % 60;
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
+        initApp();
+    </script>
+</body>
+</html>
+
+Conseil d'installation pour la cuisine :
+
+Sur iPad ou tablette Android, cliquez sur le bouton de partage de votre
+navigateur puis sélectionnez « Ajouter à l'écran d'accueil ». L'application TIME
+s'ouvrira ainsi en plein écran sans la barre d'adresse, comme une véritable
+application native.
